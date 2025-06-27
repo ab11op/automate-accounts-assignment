@@ -1,0 +1,39 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+
+model ReceiptFile {
+  id             Int       @id @default(autoincrement())
+  file_name      String
+  file_path      String
+  mime_type      String
+  invalid_reason String?  
+  is_valid       Boolean   @default(false)
+  is_processed   Boolean   @default(false)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  receipt        Receipt?  @relation("ReceiptToFile")
+}
+
+model Receipt {
+  id             Int         @id @default(autoincrement())
+  purchased_at   DateTime?
+  merchant_name  String?
+  total_amount   String?
+  file_path      String
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  receiptFileId  Int         @unique
+  receiptFile    ReceiptFile @relation("ReceiptToFile", fields: [receiptFileId], references: [id])
+}
