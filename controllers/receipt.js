@@ -1,11 +1,14 @@
 import { PrismaClient } from "@prisma/client";
 const prisma = new PrismaClient();
-
+import * as pathModule from "path";
 import { Router } from "express";
+import { createWorker } from "tesseract.js";
 import multer from "multer";
 import fs from "fs";
 import storage from "../middlewares/multer.js";
 import checkFile from "../utils/checkFile.js";
+import pdf2img from "../utils/pdf2img.js";
+import extractInfo from "../utils/extractInfo.js";
 
 const upload = multer({ storage: storage });
 const router = Router();
@@ -20,15 +23,17 @@ router.post("/upload", upload.single("file"), async (req, res) => {
       });
     }
 
-    const { originalname, path, mimetype } = file;
+    const { originalname, path: filePath, mimetype } = file;
+
+    const relativePath = pathModule.relative(process.cwd(), filePath);
     const now = new Date();
 
     try {
       await prisma.receiptFile.create({
         data: {
-          file_name: originalname,
-          file_path: path,
+          file_path: relativePath,
           mime_type: mimetype,
+          file_name: originalname,
           createdAt: now,
           updatedAt: now,
         },
@@ -39,15 +44,23 @@ router.post("/upload", upload.single("file"), async (req, res) => {
         message: "File uploaded successfully",
       });
     } catch (dbError) {
-      fs.unlink(path); // delete the file if DB insert fails
-      console.error("DB insert error, file removed:", dbError);
+      // Remove the file on DB failure
+      fs.unlink(filePath, (err) => {
+        if (err) {
+          console.error(" Error unlinking file:", err.message);
+        } else {
+          console.log(" File deleted after DB failure");
+        }
+      });
+
+      console.error(" DB insert error:", dbError.message);
       return res.status(500).json({
         success: false,
         message: "Error inserting receipt",
       });
     }
   } catch (error) {
-    console.error("Unexpected error:", error);
+    console.error(" Unexpected error:", error);
     return res.status(500).json({
       success: false,
       message: "Error uploading file",
@@ -155,13 +168,13 @@ router.get("/receipts/:id", async (req, res) => {
 
 router.get("/receipts", async (req, res) => {
   try {
-    const {skip, limit } = req.query;
+    const { skip, limit } = req.query;
 
     const parsedSkip = parseInt(skip) || 0;
     const parsedLimit = parseInt(limit) || 5;
     const receipts = await prisma.receiptFile.findMany({
-        skip:parsedSkip,
-        take:parsedLimit
+      skip: parsedSkip,
+      take: parsedLimit,
     });
 
     if (!receipts) {
@@ -175,6 +188,62 @@ router.get("/receipts", async (req, res) => {
       success: true,
       data: receipts,
     });
+  } catch (error) {
+    console.error("error in fetching receipts:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching receipt",
+    });
+  }
+});
+
+router.post("/process/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id, 10);
+    if (isNaN(id)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid receipt ID",
+      });
+    }
+
+    const receipt = await prisma.receiptFile.findUnique({ where: { id } });
+    if (!receipt) {
+      return res.status(404).json({
+        success: false,
+        message: "Receipt not found",
+      });
+    }
+    const { file_path, file_name } = receipt;
+    if (await pdf2img(file_path, file_name)) {
+      //   Tesseract.recognize(`./images/${file_name}.png`, "eng").then(
+      //     ({ data: { text } }) => {
+      //       return res.status(200).json({
+      //         text,
+      //       });
+      //     }
+      //   );
+
+      const worker = await createWorker(['eng']);
+
+      (async () => {
+        // await worker.loadLanguage("eng");
+        // await worker.initialize("eng");
+        const {
+          data: { text },
+        } = await worker.recognize(`./images/${file_name}.png`);
+       const info = extractInfo(text)
+        worker.terminate();
+        return res.status(200).json({
+            info
+        });
+      })();
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: "error in file conversion",
+      });
+    }
   } catch (error) {
     console.error("error in fetching receipts:", error);
     return res.status(500).json({

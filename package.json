@@ -15,7 +15,9 @@
     "express": "^5.1.0",
     "multer": "^2.0.1",
     "nodemon": "^3.1.10",
-    "sqlite3": "^5.1.7"
+    "pdf-to-img": "^4.5.0",
+    "sharp": "^0.34.2",
+    "tesseract.js": "^6.0.1"
   },
   "devDependencies": {
     "prisma": "^6.10.1"
