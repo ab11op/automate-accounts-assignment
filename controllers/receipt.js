@@ -4,7 +4,8 @@ import * as pathModule from "path";
 import { Router } from "express";
 import { createWorker } from "tesseract.js";
 import multer from "multer";
-import fs from "fs";
+import path from "path";
+import { promises as fs } from "fs";
 import storage from "../middlewares/multer.js";
 import checkFile from "../utils/checkFile.js";
 import pdf2img from "../utils/pdf2img.js";
@@ -197,16 +198,95 @@ router.get("/receipts", async (req, res) => {
   }
 });
 
-router.post("/process/:id", async (req, res) => {
-  try {
-    const id = parseInt(req.params.id, 10);
-    if (isNaN(id)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid receipt ID",
-      });
-    }
+// router.post("/process/:id", async (req, res) => {
+//   try {
+//     const id = parseInt(req.params.id, 10);
+//     if (isNaN(id)) {
+//       return res.status(400).json({
+//         success: false,
+//         message: "Invalid receipt ID",
+//       });
+//     }
 
+//     const receipt = await prisma.receiptFile.findUnique({ where: { id } });
+//     if (!receipt) {
+//       return res.status(404).json({
+//         success: false,
+//         message: "Receipt not found",
+//       });
+//     }
+
+//     const { file_path, file_name, is_processed} = receipt;
+//     if(is_processed){
+//        return res.status(400).json({
+//         success: false,
+//         message: "receipt is already processed",
+//       });
+//     }
+//     const converted = await pdf2img(file_path, file_name);
+//     if (!converted) {
+//       return res.status(500).json({
+//         success: false,
+//         message: "Error in file conversion",
+//       });
+//     }
+
+//     const worker = await createWorker(["eng"]);
+//     const {
+//       data: { text },
+//     } = await worker.recognize(`./images/${file_name}.png`);
+//     await worker.terminate();
+
+//     const info = extractInfo(text);
+//     await prisma.receipt.create({
+//       data: {
+//         data: info,
+//         file_path,
+//         receiptFileId: id,
+//         createdAt: new Date(),
+//         updatedAt: new Date(),
+//       },
+//     });
+
+//     await prisma.receiptFile.update({
+//       where: { id },
+//       data: {
+//         is_processed: true,
+//         updatedAt: new Date()
+//       },
+//     });
+//     return res.status(200).json({
+//       success: true,
+//       info,
+//     });
+//   } catch (error) {
+//     console.error("error in processing receipt:", error.message || error);
+//      fs.unlink(file_path, (err) => {
+//         if (err) {
+//           console.error(" Error unlinking file:", err.message);
+//         } else {
+//           console.log(" File deleted after DB failure");
+//         }
+//       });
+//     return res.status(500).json({
+//       success: false,
+//       message: "Error processing receipt",
+//     });
+//   }
+// });
+
+
+
+router.post("/process/:id", async (req, res) => {
+  const id = parseInt(req.params.id, 10);
+  if (isNaN(id)) {
+    return res.status(400).json({
+      success: false,
+      message: "Invalid receipt ID",
+    });
+  }
+
+  try {
     const receipt = await prisma.receiptFile.findUnique({ where: { id } });
     if (!receipt) {
       return res.status(404).json({
@@ -214,42 +294,82 @@ router.post("/process/:id", async (req, res) => {
         message: "Receipt not found",
       });
     }
-    const { file_path, file_name } = receipt;
-    if (await pdf2img(file_path, file_name)) {
-      //   Tesseract.recognize(`./images/${file_name}.png`, "eng").then(
-      //     ({ data: { text } }) => {
-      //       return res.status(200).json({
-      //         text,
-      //       });
-      //     }
-      //   );
 
-      const worker = await createWorker(['eng']);
+    const { file_path, file_name, is_processed } = receipt;
 
-      (async () => {
-        // await worker.loadLanguage("eng");
-        // await worker.initialize("eng");
-        const {
-          data: { text },
-        } = await worker.recognize(`./images/${file_name}.png`);
-       const info = extractInfo(text)
-        worker.terminate();
-        return res.status(200).json({
-            info
-        });
-      })();
-    } else {
-      return res.status(404).json({
+    if (is_processed) {
+      return res.status(400).json({
         success: false,
-        message: "error in file conversion",
+        message: "Receipt is already processed",
       });
     }
+
+    const imagePath = path.join("images", `${file_name}.png`);
+
+    const converted = await pdf2img(file_path, file_name);
+    if (!converted) {
+      return res.status(500).json({
+        success: false,
+        message: "Error in file conversion",
+      });
+    }
+
+    const worker = await createWorker(["eng"]);
+    const {
+      data: { text },
+    } = await worker.recognize(imagePath);
+    await worker.terminate();
+
+    const info = extractInfo(text);
+
+    try {
+      await prisma.receipt.create({
+        data: {
+          data: info,
+          file_path,
+          receiptFileId: id,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+
+      await prisma.receiptFile.update({
+        where: { id },
+        data: {
+          is_processed: true,
+          updatedAt: new Date(),
+        },
+      });
+
+      return res.status(200).json({
+        success: true,
+        info,
+      });
+
+    } catch (dbError) {
+      console.error("Database error:", dbError.message|| dbError);
+      // Cleanup: delete the generated image
+      try {
+        await fs.unlink(imagePath);
+        console.log(`Image ${imagePath} deleted due to DB failure`);
+      } catch (unlinkErr) {
+        console.error(`Failed to delete image ${imagePath}:`, unlinkErr.message || unlinkErr);
+      }
+
+      return res.status(500).json({
+        success: false,
+        message: "Database operation failed",
+      });
+    }
+
   } catch (error) {
-    console.error("error in fetching receipts:", error);
+    console.error("Error in processing receipt:", error);
     return res.status(500).json({
       success: false,
-      message: "Error fetching receipt",
+      message: "Error processing receipt",
     });
   }
 });
+
+
 export default router;

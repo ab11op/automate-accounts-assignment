@@ -27,9 +27,7 @@ model ReceiptFile {
 
 model Receipt {
   id             Int         @id @default(autoincrement())
-  purchased_at   DateTime?
-  merchant_name  String?
-  total_amount   String?
+  data           Json?
   file_path      String
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
