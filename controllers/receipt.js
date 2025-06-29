@@ -224,8 +224,13 @@ router.post("/process/:id", async (req, res) => {
       });
     }
 
-    const { file_path, file_name, is_processed } = receipt;
-
+    const { file_path, file_name, is_processed, mime_type } = receipt;
+    if (mime_type !== "application/pdf") {
+      return res.status(400).json({
+        success: false,
+        message: "Receipt can't be processed due to invalid format ",
+      });
+    }
     if (is_processed) {
       return res.status(400).json({
         success: false,
