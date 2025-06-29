@@ -89,7 +89,13 @@ router.post("/validate/:id", async (req, res) => {
         message: "Receipt not found",
       });
     }
-
+    const { is_validated } = receiptFile;
+    if (is_validated) {
+      return res.status(400).json({
+        success: false,
+        message: "Receipt is already validated",
+      });
+    }
     let invalid_reason = null;
 
     // Check file type
@@ -109,6 +115,7 @@ router.post("/validate/:id", async (req, res) => {
         data: {
           invalid_reason,
           updatedAt: new Date(),
+          is_validated: true,
         },
       });
     } else {
@@ -117,6 +124,7 @@ router.post("/validate/:id", async (req, res) => {
         data: {
           is_valid: true,
           updatedAt: new Date(),
+          is_validated: true,
         },
       });
     }
@@ -198,85 +206,6 @@ router.get("/receipts", async (req, res) => {
   }
 });
 
-// router.post("/process/:id", async (req, res) => {
-//   try {
-//     const id = parseInt(req.params.id, 10);
-//     if (isNaN(id)) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Invalid receipt ID",
-//       });
-//     }
-
-//     const receipt = await prisma.receiptFile.findUnique({ where: { id } });
-//     if (!receipt) {
-//       return res.status(404).json({
-//         success: false,
-//         message: "Receipt not found",
-//       });
-//     }
-
-//     const { file_path, file_name, is_processed} = receipt;
-//     if(is_processed){
-//        return res.status(400).json({
-//         success: false,
-//         message: "receipt is already processed",
-//       });
-//     }
-//     const converted = await pdf2img(file_path, file_name);
-//     if (!converted) {
-//       return res.status(500).json({
-//         success: false,
-//         message: "Error in file conversion",
-//       });
-//     }
-
-//     const worker = await createWorker(["eng"]);
-//     const {
-//       data: { text },
-//     } = await worker.recognize(`./images/${file_name}.png`);
-//     await worker.terminate();
-
-//     const info = extractInfo(text);
-//     await prisma.receipt.create({
-//       data: {
-//         data: info,
-//         file_path,
-//         receiptFileId: id,
-//         createdAt: new Date(),
-//         updatedAt: new Date(),
-//       },
-//     });
-
-//     await prisma.receiptFile.update({
-//       where: { id },
-//       data: {
-//         is_processed: true,
-//         updatedAt: new Date()
-//       },
-//     });
-//     return res.status(200).json({
-//       success: true,
-//       info,
-//     });
-//   } catch (error) {
-//     console.error("error in processing receipt:", error.message || error);
-//      fs.unlink(file_path, (err) => {
-//         if (err) {
-//           console.error(" Error unlinking file:", err.message);
-//         } else {
-//           console.log(" File deleted after DB failure");
-//         }
-//       });
-//     return res.status(500).json({
-//       success: false,
-//       message: "Error processing receipt",
-//     });
-//   }
-// });
-
-
-
 router.post("/process/:id", async (req, res) => {
   const id = parseInt(req.params.id, 10);
   if (isNaN(id)) {
@@ -321,6 +250,7 @@ router.post("/process/:id", async (req, res) => {
     await worker.terminate();
 
     const info = extractInfo(text);
+    delete info.rawText;
 
     try {
       await prisma.receipt.create({
@@ -345,15 +275,17 @@ router.post("/process/:id", async (req, res) => {
         success: true,
         info,
       });
-
     } catch (dbError) {
-      console.error("Database error:", dbError.message|| dbError);
+      console.error("Database error:", dbError.message || dbError);
       // Cleanup: delete the generated image
       try {
         await fs.unlink(imagePath);
         console.log(`Image ${imagePath} deleted due to DB failure`);
       } catch (unlinkErr) {
-        console.error(`Failed to delete image ${imagePath}:`, unlinkErr.message || unlinkErr);
+        console.error(
+          `Failed to delete image ${imagePath}:`,
+          unlinkErr.message || unlinkErr
+        );
       }
 
       return res.status(500).json({
@@ -361,7 +293,6 @@ router.post("/process/:id", async (req, res) => {
         message: "Database operation failed",
       });
     }
-
   } catch (error) {
     console.error("Error in processing receipt:", error);
     return res.status(500).json({
@@ -371,5 +302,35 @@ router.post("/process/:id", async (req, res) => {
   }
 });
 
+router.get("/processed", async (req, res) => {
+  try {
+    const { skip, limit } = req.query;
+
+    const parsedSkip = parseInt(skip) || 0;
+    const parsedLimit = parseInt(limit) || 5;
+    const processed = await prisma.receipt.findMany({
+      skip: parsedSkip,
+      take: parsedLimit,
+    });
+
+    if (!processed) {
+      return res.status(404).json({
+        success: false,
+        message: "Receipt not found",
+      });
+    }
+    return res.status(200).json({
+      message: "receipts fetched",
+      success: true,
+      data: processed,
+    });
+  } catch (error) {
+    console.error("error in fetching processed receipts:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Error fetching processed receipt",
+    });
+  }
+});
 
 export default router;

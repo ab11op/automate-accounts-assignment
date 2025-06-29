@@ -21,7 +21,7 @@ model ReceiptFile {
   is_processed   Boolean   @default(false)
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
-
+  is_validated   Boolean   @default(false)
   receipt        Receipt?  @relation("ReceiptToFile")
 }
 

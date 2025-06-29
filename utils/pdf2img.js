@@ -14,7 +14,7 @@ const pdf2img = async (pdfPath, name) => {
     return true;
   } catch (error) {
     console.error("Error in writing file to the image directory:", error);
-    return false; // fixed typo
+    return false; 
   }
 };
 
