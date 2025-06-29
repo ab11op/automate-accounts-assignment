@@ -176,24 +176,6 @@ Sample database file available in `prisma/receipts.db`
 
 ---
 
-## 📂 Directory Structure
-
-```bash
-├── uploads/             # Uploaded PDF files
-├── prisma/
-│   └── schema.prisma    # Prisma schema
-│   └── receipts.db      # Sample DB file (can be deleted)
-├── src/
-│   └── routes/          # API routes
-│   └── controllers/     # Business logic
-│   └── utils/           # OCR and processing logic
-├── .env-example         # Environment variable example file
-├── package.json
-└── README.md
-```
-
----
-
 ## 🛠️ Tech Stack
 
 - **Backend**: Node.js + Express.js
